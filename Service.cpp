@@ -29,7 +29,7 @@ void WINAPI ServiceMain(DWORD dwArgc, LPSTR* lpArgv) {
 	if (Log.is_open())
 		Log.sync();
 	Log.close(); 
-	Log.open("Log.txt", 9);
+	Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	Log << "Service Starting at " << getTime();
 	hServiceStausHandler = RegisterServiceCtrlHandlerEx(SERVICE_NAME, (LPHANDLER_FUNCTION_EX)ServiceControlHandlerEx, NULL);
 	ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
@@ -46,12 +46,12 @@ void WINAPI ServiceMain(DWORD dwArgc, LPSTR* lpArgv) {
 		return;
 	}
 	for (auto i = 0; i < sessionCount; ++i)
-		if (wtsSessions[i].SessionId != 0) continue;
+		if (wtsSessions[i].SessionId == 0) continue;
 		else if (!CustomCreateProcess(wtsSessions[i].SessionId, dwBytes))
 			Log << GetLastError() << std::endl;
 	ServiceInit(dwArgc, lpArgv);
 	if (!Log.is_open())
-		Log.open("Log.txt", 9);
+		Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	Log << "Service Initialization complete at " << getTime() 
 		<< "Service begins to performing" << std::endl;
 	while (ServiceStatus.dwCurrentState != SERVICE_STOPPED) {
@@ -69,7 +69,7 @@ DWORD WINAPI ServiceControlHandlerEx(DWORD dwControl, DWORD dwEventType, LPVOID 
 	if (Log.is_open())
 		Log.sync();
 	Log.close();
-	Log.open("Log.txt", 9);
+	Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 
 	switch (dwControl)
 	{
@@ -82,7 +82,7 @@ DWORD WINAPI ServiceControlHandlerEx(DWORD dwControl, DWORD dwEventType, LPVOID 
 			Log << pcUserName << " is logging off" << std::endl;
 			break;
 		}
-		else if (dwEventType == WTS_SESSION_LOGON) {
+		else if (dwEventType == WTS_SESSION_LOGON || dwEventType == WTS_SESSION_CREATE || dwEventType == WTS_REMOTE_CONNECT) {
 			Log << pcUserName << " is logging in" << std::endl;
 			CustomCreateProcess(sessionNotification->dwSessionId, dwBytes);
 		}
@@ -121,7 +121,7 @@ void ServiceReportStatus(DWORD dwCurrentState, DWORD dwWin32ExitCode, DWORD dwWa
 
 void ServiceInit(DWORD dwArgc, LPSTR* lpArgv) {
 	if (!Log.is_open())
-		Log.open("Log.txt", 9);
+		Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	hServiceEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (hServiceEvent == NULL) {
 		ServiceReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
@@ -132,7 +132,7 @@ void ServiceInit(DWORD dwArgc, LPSTR* lpArgv) {
 }
 
 void ServiceInstal() {
-	Log.open("Log.txt", 9);
+	Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	SC_HANDLE hSCManager = NULL;
 	SC_HANDLE hService = NULL;
 	DWORD dwModuleFileName = 0;
@@ -166,7 +166,7 @@ void ServiceInstal() {
 }
 
 void ServiceDelete() {
-	Log.open("Log.txt", 9);
+	Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	SC_HANDLE hSCManager = NULL;
 	SC_HANDLE hService = NULL;
 	hSCManager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
@@ -179,9 +179,9 @@ void ServiceDelete() {
 }
 
 int main(int argc, CHAR* argv[]) {
-	Log.open("Log.txt", 9);
+	Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	if (!Log)
-		Log.open("Log.txt", 1);
+		Log.open("Log.txt", std::ios_base::in);
 	Log.close();
 	if (lstrcmpiA(argv[1], "install") == 0) 
 		ServiceInstal();
@@ -196,7 +196,7 @@ int main(int argc, CHAR* argv[]) {
 
 BOOL CustomCreateProcess(DWORD wtsSession, DWORD& dwBytes) {
 	if (!Log.is_open())
-		Log.open("Log.txt", 9);
+		Log.open("Log.txt", std::ios_base::in | std::ios_base::app);
 	HANDLE userToken;
 	PROCESS_INFORMATION pi{};
 	STARTUPINFO si{};
@@ -228,7 +228,8 @@ char* getTime() {
 char* GetUsernameFromSId(DWORD sId, DWORD& dwBytes) {
 	char* pcUserName = new char[105];
 	LPWSTR buff;
-	WTSQuerySessionInformation(WTS_CURRENT_SERVER_HANDLE, sId, WTSUserName, &buff, &dwBytes);
+	if (!WTSQuerySessionInformation(WTS_CURRENT_SERVER_HANDLE, sId, WTSUserName, &buff, &dwBytes))
+		return nullptr;
 	WideCharToMultiByte(CP_UTF8, 0, buff, -1, pcUserName, 105, 0, 0);
 	WTSFreeMemory(buff);
 	return pcUserName;
