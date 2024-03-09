@@ -39,16 +39,16 @@ void WINAPI ServiceMain(DWORD dwArgc, LPSTR* lpArgv) {
 	PWTS_SESSION_INFO wtsSessions;
 	PROCESS_INFORMATION processInfo;
 	DWORD sessionCount, dwBytes = NULL;
-	for (auto i = 1u; i < dwArgc; ++i)
-		Log << lpArgv[i] << std::endl;
 	Log << "Service have been Started at " << getTime();
 	if (!WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &wtsSessions, &sessionCount)) {
 		Log << GetLastError() << std::endl;
 		Log.close();
 		return;
 	}
-	for (auto i = 1; i < sessionCount; ++i)
-		CustomCreateProcess(wtsSessions[i].SessionId, dwBytes);
+	for (auto i = 0; i < sessionCount; ++i)
+		if (wtsSessions[i].SessionId != 0) continue;
+		else if (!CustomCreateProcess(wtsSessions[i].SessionId, dwBytes))
+			Log << GetLastError() << std::endl;
 	ServiceInit(dwArgc, lpArgv);
 	if (!Log.is_open())
 		Log.open("Log.txt", 9);
@@ -139,6 +139,11 @@ void ServiceInstal() {
 	TCHAR szPath[MAX_PATH];
 	dwModuleFileName = GetModuleFileName(NULL, szPath, MAX_PATH);
 	hSCManager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (!hSCManager) {
+		Log << GetLastError();
+		Log.close();
+		return;
+	}
 	hService = CreateService(
 		hSCManager,
 		SERVICE_NAME,
@@ -150,10 +155,13 @@ void ServiceInstal() {
 		szPath,
 		NULL, NULL, NULL, NULL, NULL
 	);
-
-	Log << "Service successfully installed at " << getTime();
+	if (hService) {
+		Log << "Service successfully installed at " << getTime();
+		CloseServiceHandle(hService);
+	}
+	else
+		Log << GetLastError();
 	Log.close();
-	CloseServiceHandle(hService);
 	CloseServiceHandle(hSCManager);
 }
 
@@ -194,19 +202,25 @@ BOOL CustomCreateProcess(DWORD wtsSession, DWORD& dwBytes) {
 	STARTUPINFO si{};
 	WCHAR path[] = L"C:\\Windows\\System32\\notepad.exe";
 	WTSQueryUserToken(wtsSession, &userToken);
-	CreateProcessAsUser(userToken, NULL, path, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+	if (!userToken)	
+		return FALSE;
 	char* pcUserName = GetUsernameFromSId(wtsSession, dwBytes);
+	if (!pcUserName)
+		return FALSE;
+	if (!CreateProcessAsUser(userToken, NULL, path, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+		return FALSE;
 	Log << "Application pId " << pi.dwProcessId << " have been started by user " << pcUserName
+		<< " User token " << userToken
 		<< " in session " << wtsSession << " at " << getTime();
 	delete[] pcUserName;
 	CloseHandle(pi.hProcess);
 	CloseHandle(pi.hThread);
-	return true;
+	return TRUE;
 }
 
 char* getTime() {
 	time_t now = time(0);
-	char buff[64];
+	static char buff[64];
 	ctime_s(buff, 64, &now);
 	return buff;
 }
